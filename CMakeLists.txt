@@ -6,8 +6,18 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# macOS Universal Binary & deployment target defaults
+if(APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS deployment version")
+endif()
+
 # Export compile_commands.json for IDE tooling
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+set(GREEN_ONIONS_FORMATS VST3 Standalone)
+if(APPLE)
+    list(APPEND GREEN_ONIONS_FORMATS AU)
+endif()
 
 # Allow passing a local JUCE checkout via -DJUCE_DIR=/path/to/JUCE
 if(DEFINED JUCE_DIR AND EXISTS "${JUCE_DIR}/CMakeLists.txt")
@@ -39,7 +49,7 @@ juce_add_plugin(GreenOnions
     COPY_PLUGIN_AFTER_BUILD     FALSE
     PLUGIN_NAME                 "Green Onions"
     PRODUCT_NAME                "Green Onions"
-    FORMATS                     VST3 Standalone
+    FORMATS                     ${GREEN_ONIONS_FORMATS}
 )
 
 target_sources(GreenOnions
@@ -86,9 +96,15 @@ target_compile_definitions(GreenOnions
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0
         JUCE_DISPLAY_SPLASH_SCREEN=0
-        JUCE_ALSA=1
-        JUCE_JACK=1
 )
+
+if(UNIX AND NOT APPLE)
+    target_compile_definitions(GreenOnions
+        PUBLIC
+            JUCE_ALSA=1
+            JUCE_JACK=1
+    )
+endif()
 
 # Optional BinaryData PNG sprite pipeline from Resources/Stage/*.png with automatic procedural fallback
 file(GLOB STAGE_PNG_ASSETS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Stage/*.png")

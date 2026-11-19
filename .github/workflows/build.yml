@@ -1,0 +1,112 @@
+name: Build Cross-Platform Binaries (Win / macOS / Linux)
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux-x86_64
+            os: ubuntu-24.04
+            cmake_args: -G Ninja -DCMAKE_BUILD_TYPE=Release
+            artifact_name: Green-Onions-Linux-x86_64
+          - name: Windows-x64
+            os: windows-2022
+            cmake_args: -A x64
+            artifact_name: Green-Onions-Windows-x64
+          - name: macOS-Universal
+            os: macos-14
+            cmake_args: -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+            artifact_name: Green-Onions-macOS-Universal
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux audio & GUI dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build pkg-config \
+            libasound2-dev libjack-jackd2-dev \
+            libfreetype6-dev libfontconfig1-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxcomposite-dev \
+            libgl1-mesa-dev libgtk-3-dev
+
+      - name: Install Ninja on macOS
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Configure CMake
+        run: cmake -B build ${{ matrix.cmake_args }}
+
+      - name: Build VST3, AU (macOS), Standalone & DSP Tests
+        run: cmake --build build --config Release --parallel
+
+      - name: Run DSP Verification Tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Stage Linux binaries
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist
+          cp -r "build/GreenOnions_artefacts/Release/VST3/Green Onions.vst3" dist/
+          cp "build/GreenOnions_artefacts/Release/Standalone/Green Onions" dist/
+          tar -czf "${{ matrix.artifact_name }}.tar.gz" -C dist .
+
+      - name: Stage Windows binaries
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -Recurse "build/GreenOnions_artefacts/Release/VST3/Green Onions.vst3" dist/
+          Copy-Item "build/GreenOnions_artefacts/Release/Standalone/Green Onions.exe" dist/
+          Compress-Archive -Path dist/* -DestinationPath "${{ matrix.artifact_name }}.zip"
+
+      - name: Stage macOS Universal binaries
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist
+          cp -r "build/GreenOnions_artefacts/Release/VST3/Green Onions.vst3" dist/
+          cp -r "build/GreenOnions_artefacts/Release/AU/Green Onions.component" dist/
+          cp -r "build/GreenOnions_artefacts/Release/Standalone/Green Onions.app" dist/
+          cd dist && zip -r "../${{ matrix.artifact_name }}.zip" .
+
+      - name: Upload platform binary archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            ${{ matrix.artifact_name }}.zip
+            ${{ matrix.artifact_name }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/*
+          generate_release_notes: true
