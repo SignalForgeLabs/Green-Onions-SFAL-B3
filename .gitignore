@@ -1,0 +1,14 @@
+# Build outputs & fetched dependencies
+build/
+cmake-build-*/
+out/
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+compile_commands.json
