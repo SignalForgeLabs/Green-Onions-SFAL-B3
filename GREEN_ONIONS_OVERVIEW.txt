@@ -1,0 +1,143 @@
+================================================================================
+GREEN ONIONS — CLASSIC TONEWHEELS (HAMMOND B-3 + LESLIE 122/147 + 1962 2x12)
+Signal Forge Audio Labs
+================================================================================
+
+OVERVIEW
+--------
+Green Onions is a physical-modeling virtual Hammond B-3 tonewheel organ,
+Accutronics spring reverb, dual-model Leslie 122/147 rotary speaker, and
+parallel Marshall 1962 "Bluesbreaker" 2x12 amplifier instrument built in
+C++20 and JUCE for Windows (VST3 / Standalone), macOS Universal (VST3 / AU /
+Standalone), and Linux (VST3 / Standalone with ALSA & JACK/PipeWire).
+
+Rather than relying on static audio samples, every electromechanical quirk
+of a vintage 1960s tonewheel console is modeled in real time with zero
+audio-thread memory allocations.
+
+--------------------------------------------------------------------------------
+1. TONEWHEEL ENGINE & ELECTROMECHANICAL REALISM
+--------------------------------------------------------------------------------
+- 91 Free-Running Tonewheels:
+  Continuously spinning phase-accumulating oscillators using authentic Hammond
+  synchronous gear tooth ratios (exact A4 = 440.000 Hz with authentic
+  mechanical detuning across the other 11 pitch classes). Phases never reset
+  on key-down, preserving natural harmonic shimmer.
+
+- Authentic Manual Foldback & Complex Pedal Generator:
+  * Upper & Lower Manuals (61 keys, C2-C7) fold back authentically at both the
+    bottom (16' drawbar wraps above pedal wheels) and top (above wheel #91).
+  * 25-Note Radial Pedalboard (C2-C4) drives complex 5-harmonic pedal wheels
+    (fundamental + 2nd through 5th harmonics) for thick, woody bass weight.
+
+- 9-Contact Key Matrix & Organic Key Click:
+  Each manual key models 9 independent palladium contacts with randomized
+  0.2 ms to 2.5 ms closure stagger and velocity-sensitive bandpass-shaped
+  contact transients—producing organic key click with zero static samples.
+
+- Harmonic Percussion (Upper Manual Only):
+  Monophonic single-trigger envelope (legato playing does not re-trigger until
+  all upper keys release), 2nd (4') / 3rd (2-2/3') harmonic selection, Fast
+  (~150 ms) / Slow (~500 ms) decay, Normal / Soft volume, authentic muting of
+  the Upper Manual 1' drawbar when engaged, and a ~3 dB drawbar dip on Normal.
+
+- 18-Stage All-Pass Scanner Vibrato / Chorus:
+  ~6.9 Hz tri-phase mechanical scanner LFO driving an 18-stage all-pass delay
+  line across V1-V3 (wet vibrato) and C1-C3 (dry + wet chorus), with
+  independent Upper and Lower routing (percussion & pedals bypass the scanner).
+
+- Smart Idle Generator Gate (RUN / QUIET):
+  Default QUIET mode keeps all 91 tonewheel phases continuously spinning while
+  gating idle generator leakage to silence 1.2 s after release (waking up in
+  0.4 ms on any key-down). Flip the ivory IDLE rocker to RUN for continuous
+  vintage tonewheel bleed.
+
+- "Load Your Organ" (5 Hot-Swappable Console Voicings):
+  Click-free real-time switching between 5 physical console personalities
+  modeling filter capacitor aging (wax vs. red Mylar), magnetic pickup gap
+  calibration across all 91 wheels, wiring-harness crosstalk, and AO-28 bias:
+    1. 1955 Wax-Cap Jazz B-3
+    2. 1959 Golden Era B-3
+    3. 1968 Red-Cap Rock B-3
+    4. 1962 Sanctuary C-3
+    5. 1972 Road-Worn Club Chop
+
+--------------------------------------------------------------------------------
+2. PREAMP, SPRING REVERB, LESLIE 122/147 & PARALLEL BLUESBREAKER 2x12
+--------------------------------------------------------------------------------
+- AO-28 Tube Preamp & Variable-Capacitor Expression Swell (CC 11):
+  Loudness-contoured swell pedal that preserves warm bass at low volumes and
+  opens up the midrange into dual-stage asymmetric 6AU6/12AX7 tube saturation.
+
+- Accutronics 3-Spring Reverb Tank (Pre-Leslie):
+  Three parallel prime-length spring paths with 4-stage dispersive all-pass
+  chains placed before the Leslie crossover so reverb tails spin through the
+  rotating horn.
+
+- Dual Leslie 122 / Leslie 147 Rotary Speaker:
+  4th-order Linkwitz-Riley 800 Hz crossover, 6550 tube power-amp saturation,
+  independent Horn and heavy wooden Bass Drum acceleration/deceleration
+  inertia curves, stereo Doppler shift, directional cardioid AM, moving
+  off-axis baffle filtering, and wooden cabinet early reflections:
+    * Leslie 122: Warm studio/jazz voicing, 400/342 RPM Tremolo, smooth ramp.
+    * Leslie 147: Hotter unbalanced input, 2.8 kHz horn bite, 95 Hz woofer
+      thump, snappier belt ramp, 411/351 RPM Tremolo.
+
+- Distance-Coupled Studio Microphone Modeling:
+  Per-channel 3-band EQ with inverse-square proximity bass boost modeling
+  Neumann U47, AKG C414, Royer R-121 (Figure-8 Ribbon), and Shure SM57.
+
+- Parallel Marshall 1962 "Bluesbreaker" 2x12 Combo:
+  Tapped pre-Leslie for classic rock grit (JTM45 tone stack, GZ34 rectifier
+  sag, 12AX7 + asymmetric KT66 saturation, 2x12 Celestion Alnico speaker
+  curve), captured through a movable dual-mic stereo matrix (Shure SM57 +
+  AKG C414) with live acoustic arrival-time delay, proximity EQ, and stereo pan.
+
+--------------------------------------------------------------------------------
+3. CONSOLE & INTERACTIVE MAPLE STAGE INTERFACE
+--------------------------------------------------------------------------------
+- 38-Drawbar Dual A/B Console Deck:
+  Full Upper Set A (B), Upper Set B (Bb), Pedals (16', 8'), Lower Set A (B),
+  and Lower Set B (Bb) with color-coded pull-down Hammond drawbars and live
+  [LIVE] / [PRESET] status badges.
+
+- Reverse-Color Preset Octaves (C1-B1):
+  Ebony naturals and ivory sharps beside both manuals: C = Cancel, C#-A = 9
+  instant registrations (Shift-click or Right-click to save live drawbars),
+  Bb = Set B, B = Set A. Also triggered directly via MIDI notes 24-35.
+
+- Procedural Hardware Aesthetic & 60 fps Rotor Chamber:
+  Cached American Black Walnut wood grain, brushed dark anodized aluminum
+  panels, 12-flute Bakelite/brass skirted rotary knobs, 3D ivory tilt-rocker
+  switches with tungsten pilot jewels, and a 60 fps top-down cutaway Leslie
+  122/147 rotor chamber.
+
+- Interactive 3-Layer Maple Stage View (with Embedded PNG Art Pipeline):
+  Toggle STAGE MICS to switch the upper deck into a Top-Down or Front Stage
+  view featuring your embedded PNG artwork (with automatic procedural
+  fallback), live spinning horn glow, and 4 freely draggable microphones
+  (Leslie L & R + Bluesbreaker SM57 & C414) with tripod boom stands and
+  two-way console knob sync.
+
+- Always-Playable Lower Performance Deck & View Modes:
+  Dual 61-key manuals, reverse-color preset octaves, 25-note radial
+  pedalboard, Leslie Half-Moon switch, and ribbed Expression Swell pedal stay
+  visible and active in both Console and Stage Views. Includes a compact
+  LIVE RACK mode and proportional 75%-175% window zoom.
+
+--------------------------------------------------------------------------------
+4. MIDI MAPPING, PRESETS & PERSISTENCE
+--------------------------------------------------------------------------------
+- MIDI Channels: Ch 1 = Upper Manual (C2-C7), Ch 2 = Lower Manual (C2-C7),
+  Ch 3 = Pedals (C2-C4), plus a single-keyboard MIDI SPLIT mode.
+- Hardware CCs: CC 1 / CC 64 = Leslie Speed, CC 11 = Expression Swell,
+  CC 12-20 = Upper Drawbars, CC 21-29 = Lower Drawbars, CC 30-31 = Pedals.
+- Factory Presets: Green Onions (Booker T.), Jimmy Smith Jazz (888000000),
+  Gospel Shout, Rock Legend Jon Lord, Whiter Shade of Pale, Mellow Comping,
+  Cathedral Full (Stationary), and Squabblin' Funk.
+- Session Persistence: Atomic XML serialization of the full APVTS parameter
+  tree plus all 18 custom C#1-A1 preset-key drawbar registrations.
+
+================================================================================
+Repository: https://github.com/SignalForgeLabs/Green-Onions-SFAL-B3
+================================================================================
