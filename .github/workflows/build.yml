@@ -25,7 +25,7 @@ jobs:
             cmake_args: -A x64
             artifact_name: Green-Onions-Windows-x64
           - name: macOS-Universal
-            os: macos-14
+            os: macos-latest
             cmake_args: -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
             artifact_name: Green-Onions-macOS-Universal
 
