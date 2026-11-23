@@ -1,4 +1,4 @@
-name: Build Cross-Platform Binaries (Win / macOS / Linux)
+name: Build Cross-Platform Installers (Win / macOS / Linux)
 
 on:
   push:
@@ -19,26 +19,37 @@ jobs:
           - name: Linux-x86_64
             os: ubuntu-24.04
             cmake_args: -G Ninja -DCMAKE_BUILD_TYPE=Release
-            artifact_name: Green-Onions-Linux-x86_64
+            artifact_name: Green-Onions-Installer-Linux-x86_64
           - name: Windows-x64
             os: windows-2022
             cmake_args: -A x64
-            artifact_name: Green-Onions-Windows-x64
+            artifact_name: Green-Onions-Installer-Windows-x64
           - name: macOS-Universal
             os: macos-latest
             cmake_args: -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
-            artifact_name: Green-Onions-macOS-Universal
+            artifact_name: Green-Onions-Installer-macOS-Universal
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Resolve version string
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="1.0.0"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Install Linux audio & GUI dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            ninja-build pkg-config \
+            ninja-build pkg-config dpkg-dev \
             libasound2-dev libjack-jackd2-dev \
             libfreetype6-dev libfontconfig1-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxcomposite-dev \
@@ -57,39 +68,148 @@ jobs:
       - name: Run DSP Verification Tests
         run: ctest --test-dir build -C Release --output-on-failure
 
-      - name: Stage Linux binaries
-        if: runner.os == 'Linux'
-        run: |
-          mkdir -p dist
-          cp -r "build/GreenOnions_artefacts/Release/VST3/Green Onions.vst3" dist/
-          cp "build/GreenOnions_artefacts/Release/Standalone/Green Onions" dist/
-          tar -czf "${{ matrix.artifact_name }}.tar.gz" -C dist .
-
-      - name: Stage Windows binaries
+      # ======================================================================
+      # WINDOWS: Inno Setup Installer (.exe) with built-in Uninstaller
+      # ======================================================================
+      - name: Build Windows Inno Setup Installer (.exe)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item -Recurse "build/GreenOnions_artefacts/Release/VST3/Green Onions.vst3" dist/
-          Copy-Item "build/GreenOnions_artefacts/Release/Standalone/Green Onions.exe" dist/
-          Compress-Archive -Path dist/* -DestinationPath "${{ matrix.artifact_name }}.zip"
+          New-Item -ItemType Directory -Force -Path dist-installer | Out-Null
+          $iscc = Get-Command iscc -ErrorAction SilentlyContinue
+          if (-not $iscc) {
+            $defaultPath = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+            if (Test-Path $defaultPath) {
+              $isccPath = $defaultPath
+            } else {
+              choco install innosetup -y --no-progress
+              $isccPath = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+            }
+          } else {
+            $isccPath = $iscc.Source
+          }
+          & $isccPath "/DAppVersion=${{ steps.ver.outputs.version }}" "Installers\Windows\GreenOnions.iss"
+          Get-ChildItem dist-installer
 
-      - name: Stage macOS Universal binaries
+      # ======================================================================
+      # macOS: Native Universal .pkg Installer (Standalone + VST3 + AU + Uninstaller)
+      # ======================================================================
+      - name: Build macOS Universal Installer (.pkg)
         if: runner.os == 'macOS'
         run: |
-          mkdir -p dist
-          cp -r "build/GreenOnions_artefacts/Release/VST3/Green Onions.vst3" dist/
-          cp -r "build/GreenOnions_artefacts/Release/AU/Green Onions.component" dist/
-          cp -r "build/GreenOnions_artefacts/Release/Standalone/Green Onions.app" dist/
-          cd dist && zip -r "../${{ matrix.artifact_name }}.zip" .
+          VERSION="${{ steps.ver.outputs.version }}"
+          mkdir -p pkg-work/root-standalone/Applications
+          mkdir -p pkg-work/root-vst3/Library/Audio/Plug-Ins/VST3
+          mkdir -p pkg-work/root-au/Library/Audio/Plug-Ins/Components
+          mkdir -p "pkg-work/root-uninstaller/Applications/Signal Forge Audio Labs"
+          mkdir -p pkg-work/components dist-installer
 
-      - name: Upload platform binary archive
+          cp -R "build/GreenOnions_artefacts/Release/Standalone/Green Onions.app" \
+                "pkg-work/root-standalone/Applications/"
+          cp -R "build/GreenOnions_artefacts/Release/VST3/Green Onions.vst3" \
+                "pkg-work/root-vst3/Library/Audio/Plug-Ins/VST3/"
+          cp -R "build/GreenOnions_artefacts/Release/AU/Green Onions.component" \
+                "pkg-work/root-au/Library/Audio/Plug-Ins/Components/"
+
+          cp "Installers/macOS/Uninstall Green Onions.command" \
+             "pkg-work/root-uninstaller/Applications/Signal Forge Audio Labs/"
+          chmod +x "pkg-work/root-uninstaller/Applications/Signal Forge Audio Labs/Uninstall Green Onions.command"
+
+          pkgbuild --root pkg-work/root-standalone \
+                   --identifier com.signalforgeaudio.greenonions.standalone \
+                   --version "${VERSION}" \
+                   --install-location / \
+                   pkg-work/components/standalone.pkg
+
+          pkgbuild --root pkg-work/root-vst3 \
+                   --identifier com.signalforgeaudio.greenonions.vst3 \
+                   --version "${VERSION}" \
+                   --install-location / \
+                   pkg-work/components/vst3.pkg
+
+          pkgbuild --root pkg-work/root-au \
+                   --identifier com.signalforgeaudio.greenonions.au \
+                   --version "${VERSION}" \
+                   --install-location / \
+                   pkg-work/components/au.pkg
+
+          pkgbuild --root pkg-work/root-uninstaller \
+                   --identifier com.signalforgeaudio.greenonions.uninstaller \
+                   --version "${VERSION}" \
+                   --install-location / \
+                   pkg-work/components/uninstaller.pkg
+
+          sed "s/version=\"1.0.0\"/version=\"${VERSION}\"/g" Installers/macOS/distribution.xml > pkg-work/distribution.xml
+
+          productbuild --distribution pkg-work/distribution.xml \
+                       --package-path pkg-work/components \
+                       "dist-installer/Green-Onions-${VERSION}-Installer-macOS-Universal.pkg"
+          ls -lh dist-installer/
+
+      # ======================================================================
+      # LINUX: .deb Package (with installed uninstaller) + Universal Linux Installer Tarball
+      # ======================================================================
+      - name: Build Linux .deb Package & Distro-Agnostic Installer
+        if: runner.os == 'Linux'
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          mkdir -p dist-installer
+
+          # 1. Build Debian/Ubuntu/Mint .deb package (installs Standalone, VST3, desktop entries, and uninstaller)
+          DEB_ROOT="deb-work/green-onions_${VERSION}_amd64"
+          mkdir -p "${DEB_ROOT}/DEBIAN"
+          mkdir -p "${DEB_ROOT}/usr/local/bin"
+          mkdir -p "${DEB_ROOT}/usr/lib/vst3"
+          mkdir -p "${DEB_ROOT}/usr/share/applications"
+
+          install -m 755 "build/GreenOnions_artefacts/Release/Standalone/Green Onions" "${DEB_ROOT}/usr/local/bin/green-onions"
+          install -m 755 "Installers/Linux/uninstall.sh" "${DEB_ROOT}/usr/local/bin/green-onions-uninstall"
+          cp -r "build/GreenOnions_artefacts/Release/VST3/Green Onions.vst3" "${DEB_ROOT}/usr/lib/vst3/"
+          install -m 644 "Installers/Linux/green-onions.desktop" "${DEB_ROOT}/usr/share/applications/green-onions.desktop"
+
+          cat > "${DEB_ROOT}/usr/share/applications/green-onions-uninstall.desktop" <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=Uninstall Green Onions
+          Comment=Uninstall Signal Forge Audio Labs Green Onions
+          Exec=/usr/local/bin/green-onions-uninstall
+          Terminal=true
+          Categories=AudioVideo;Audio;
+          EOF
+
+          cat > "${DEB_ROOT}/DEBIAN/control" <<EOF
+          Package: green-onions
+          Version: ${VERSION}
+          Section: sound
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Signal Forge Audio Labs <dev@signalforgeaudio.com>
+          Depends: libasound2t64 | libasound2, libfreetype6, libfontconfig1, libx11-6, libgl1
+          Description: Green Onions — Classic ToneWheels Hammond B-3, Leslie 122/147 & Bluesbreaker 2x12
+           Physical-modeling Hammond B-3 organ with Accutronics spring reverb, dual Leslie 122/147
+           rotary speaker, parallel Marshall 1962 Bluesbreaker 2x12 combo, and interactive stage mics.
+           Includes Standalone application, VST3 plugin, and dedicated uninstaller.
+          EOF
+
+          dpkg-deb --build --root-owner-group "${DEB_ROOT}" "dist-installer/Green-Onions-${VERSION}-Linux-x86_64.deb"
+
+          # 2. Build distro-agnostic Linux installer archive (install.sh + uninstall.sh + binaries)
+          TAR_ROOT="tar-work/Green-Onions-${VERSION}-Linux-x86_64-Installer"
+          mkdir -p "${TAR_ROOT}"
+          cp "build/GreenOnions_artefacts/Release/Standalone/Green Onions" "${TAR_ROOT}/"
+          cp -r "build/GreenOnions_artefacts/Release/VST3/Green Onions.vst3" "${TAR_ROOT}/"
+          install -m 755 "Installers/Linux/install.sh" "${TAR_ROOT}/install.sh"
+          install -m 755 "Installers/Linux/uninstall.sh" "${TAR_ROOT}/uninstall.sh"
+          cp "GREEN_ONIONS_OVERVIEW.txt" "${TAR_ROOT}/"
+          tar -czf "dist-installer/Green-Onions-${VERSION}-Linux-x86_64-Installer.tar.gz" -C tar-work "Green-Onions-${VERSION}-Linux-x86_64-Installer"
+
+          ls -lh dist-installer/
+
+      - name: Upload platform installer
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: |
-            ${{ matrix.artifact_name }}.zip
-            ${{ matrix.artifact_name }}.tar.gz
+          path: dist-installer/*
           if-no-files-found: error
 
   release:
@@ -99,14 +219,14 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download all platform artifacts
+      - name: Download all platform installers
         uses: actions/download-artifact@v4
         with:
-          path: release-artifacts
+          path: release-installers
           merge-multiple: true
 
-      - name: Publish GitHub Release
+      - name: Publish GitHub Release with Native Installers
         uses: softprops/action-gh-release@v2
         with:
-          files: release-artifacts/*
+          files: release-installers/*
           generate_release_notes: true

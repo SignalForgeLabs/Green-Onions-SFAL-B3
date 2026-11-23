@@ -2,6 +2,10 @@
 build/
 cmake-build-*/
 out/
+dist-installer/
+deb-work/
+tar-work/
+pkg-work/
 
 # IDE & OS files
 .vscode/

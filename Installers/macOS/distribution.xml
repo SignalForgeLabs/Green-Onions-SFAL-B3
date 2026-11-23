@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>Green Onions — Signal Forge Audio Labs</title>
+    <organization>com.signalforgeaudio</organization>
+    <options customize="always" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+    <choices-outline>
+        <line choice="choice_standalone"/>
+        <line choice="choice_vst3"/>
+        <line choice="choice_au"/>
+        <line choice="choice_uninstaller"/>
+    </choices-outline>
+
+    <choice id="choice_standalone" title="Green Onions Standalone App"
+            description="Installs Green Onions.app into /Applications.">
+        <pkg-ref id="com.signalforgeaudio.greenonions.standalone"/>
+    </choice>
+    <choice id="choice_vst3" title="Green Onions VST3 Plugin"
+            description="Installs Green Onions.vst3 into /Library/Audio/Plug-Ins/VST3.">
+        <pkg-ref id="com.signalforgeaudio.greenonions.vst3"/>
+    </choice>
+    <choice id="choice_au" title="Green Onions Audio Unit (AU) Plugin"
+            description="Installs Green Onions.component into /Library/Audio/Plug-Ins/Components.">
+        <pkg-ref id="com.signalforgeaudio.greenonions.au"/>
+    </choice>
+    <choice id="choice_uninstaller" title="Green Onions Uninstaller"
+            description="Installs Uninstall Green Onions.command into /Applications/Signal Forge Audio Labs."
+            enabled="false" selected="true">
+        <pkg-ref id="com.signalforgeaudio.greenonions.uninstaller"/>
+    </choice>
+
+    <pkg-ref id="com.signalforgeaudio.greenonions.standalone" version="1.0.0">standalone.pkg</pkg-ref>
+    <pkg-ref id="com.signalforgeaudio.greenonions.vst3" version="1.0.0">vst3.pkg</pkg-ref>
+    <pkg-ref id="com.signalforgeaudio.greenonions.au" version="1.0.0">au.pkg</pkg-ref>
+    <pkg-ref id="com.signalforgeaudio.greenonions.uninstaller" version="1.0.0">uninstaller.pkg</pkg-ref>
+</installer-gui-script>
