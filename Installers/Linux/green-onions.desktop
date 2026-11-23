@@ -2,7 +2,8 @@
 Type=Application
 Name=Green Onions
 Comment=Signal Forge Audio Labs — Classic ToneWheels B-3, Leslie 122/147 & Bluesbreaker 2x12
-Exec=/usr/local/bin/green-onions
+Exec=/usr/bin/green-onions
+Icon=multimedia-player
 Terminal=false
 Categories=AudioVideo;Audio;Music;Synthesizer;
 Keywords=Hammond;B3;Organ;Leslie;Synth;VST3;

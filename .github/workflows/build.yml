@@ -115,19 +115,29 @@ jobs:
              "pkg-work/root-uninstaller/Applications/Signal Forge Audio Labs/"
           chmod +x "pkg-work/root-uninstaller/Applications/Signal Forge Audio Labs/Uninstall Green Onions.command"
 
+          # Disable bundle relocation so macOS Installer ALWAYS places Green Onions.app in /Applications
+          pkgbuild --analyze --root pkg-work/root-standalone pkg-work/standalone.plist
+          plutil -replace 0.BundleIsRelocatable -bool NO pkg-work/standalone.plist
           pkgbuild --root pkg-work/root-standalone \
+                   --component-plist pkg-work/standalone.plist \
                    --identifier com.signalforgeaudio.greenonions.standalone \
                    --version "${VERSION}" \
                    --install-location / \
                    pkg-work/components/standalone.pkg
 
+          pkgbuild --analyze --root pkg-work/root-vst3 pkg-work/vst3.plist
+          plutil -replace 0.BundleIsRelocatable -bool NO pkg-work/vst3.plist
           pkgbuild --root pkg-work/root-vst3 \
+                   --component-plist pkg-work/vst3.plist \
                    --identifier com.signalforgeaudio.greenonions.vst3 \
                    --version "${VERSION}" \
                    --install-location / \
                    pkg-work/components/vst3.pkg
 
+          pkgbuild --analyze --root pkg-work/root-au pkg-work/au.plist
+          plutil -replace 0.BundleIsRelocatable -bool NO pkg-work/au.plist
           pkgbuild --root pkg-work/root-au \
+                   --component-plist pkg-work/au.plist \
                    --identifier com.signalforgeaudio.greenonions.au \
                    --version "${VERSION}" \
                    --install-location / \
@@ -155,15 +165,15 @@ jobs:
           VERSION="${{ steps.ver.outputs.version }}"
           mkdir -p dist-installer
 
-          # 1. Build Debian/Ubuntu/Mint .deb package (installs Standalone, VST3, desktop entries, and uninstaller)
+          # 1. Build Debian/Ubuntu/Mint .deb package (installs Standalone in /usr/bin, VST3, desktop entries, and uninstaller)
           DEB_ROOT="deb-work/green-onions_${VERSION}_amd64"
           mkdir -p "${DEB_ROOT}/DEBIAN"
-          mkdir -p "${DEB_ROOT}/usr/local/bin"
+          mkdir -p "${DEB_ROOT}/usr/bin"
           mkdir -p "${DEB_ROOT}/usr/lib/vst3"
           mkdir -p "${DEB_ROOT}/usr/share/applications"
 
-          install -m 755 "build/GreenOnions_artefacts/Release/Standalone/Green Onions" "${DEB_ROOT}/usr/local/bin/green-onions"
-          install -m 755 "Installers/Linux/uninstall.sh" "${DEB_ROOT}/usr/local/bin/green-onions-uninstall"
+          install -m 755 "build/GreenOnions_artefacts/Release/Standalone/Green Onions" "${DEB_ROOT}/usr/bin/green-onions"
+          install -m 755 "Installers/Linux/uninstall.sh" "${DEB_ROOT}/usr/bin/green-onions-uninstall"
           cp -r "build/GreenOnions_artefacts/Release/VST3/Green Onions.vst3" "${DEB_ROOT}/usr/lib/vst3/"
           install -m 644 "Installers/Linux/green-onions.desktop" "${DEB_ROOT}/usr/share/applications/green-onions.desktop"
 
@@ -172,10 +182,20 @@ jobs:
           Type=Application
           Name=Uninstall Green Onions
           Comment=Uninstall Signal Forge Audio Labs Green Onions
-          Exec=/usr/local/bin/green-onions-uninstall
+          Exec=/usr/bin/green-onions-uninstall
+          Icon=edit-delete
           Terminal=true
           Categories=AudioVideo;Audio;
           EOF
+
+          cat > "${DEB_ROOT}/DEBIAN/postinst" <<'EOF'
+          #!/bin/sh
+          set -e
+          if command -v update-desktop-database >/dev/null 2>&1; then
+              update-desktop-database /usr/share/applications || true
+          fi
+          EOF
+          chmod 755 "${DEB_ROOT}/DEBIAN/postinst"
 
           cat > "${DEB_ROOT}/DEBIAN/control" <<EOF
           Package: green-onions

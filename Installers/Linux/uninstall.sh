@@ -10,7 +10,12 @@ rm -f  "${HOME}/.local/bin/green-onions"
 rm -rf "${HOME}/.vst3/Green Onions.vst3"
 rm -f  "${HOME}/.local/share/applications/green-onions.desktop"
 rm -f  "${HOME}/.local/share/applications/green-onions-uninstall.desktop"
+rm -f  "${HOME}/Desktop/Green Onions.desktop"
 rm -f  "${HOME}/.local/bin/green-onions-uninstall"
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "${HOME}/.local/share/applications" 2>/dev/null || true
+fi
 
 # If installed system-wide via .deb package, offer dpkg/apt removal
 if dpkg -s green-onions >/dev/null 2>&1; then
