@@ -68,6 +68,9 @@ GreenOnionsAudioProcessor::GreenOnionsAudioProcessor()
     hornBalanceParam_ = apvts_.getRawParameterValue(Params::kHornBalance);
     masterGainParam_  = apvts_.getRawParameterValue(Params::kMasterGain);
     midiSplitParam_   = apvts_.getRawParameterValue(Params::kMidiSplit);
+    upperMidiChParam_ = apvts_.getRawParameterValue(Params::kUpperMidiCh);
+    lowerMidiChParam_ = apvts_.getRawParameterValue(Params::kLowerMidiCh);
+    pedalMidiChParam_ = apvts_.getRawParameterValue(Params::kPedalMidiCh);
     organModelParam_  = apvts_.getRawParameterValue(Params::kOrganModel);
     micLTypeParam_    = apvts_.getRawParameterValue(Params::kMicLType);
     micRTypeParam_    = apvts_.getRawParameterValue(Params::kMicRType);
@@ -122,16 +125,27 @@ bool GreenOnionsAudioProcessor::isBusesLayoutSupported(const BusesLayout& layout
     return out == juce::AudioChannelSet::stereo() || out == juce::AudioChannelSet::mono();
 }
 
-void GreenOnionsAudioProcessor::injectNoteOn(int channel, int midiNote, float velocity)
+void GreenOnionsAudioProcessor::injectNoteOn(int manualIndex, int midiNote, float velocity)
 {
-    auto msg = juce::MidiMessage::noteOn(channel, midiNote, velocity);
+    // Route on-screen keyboard clicks using the manual's configured MIDI channel (or manualIndex if Omni)
+    int ch = manualIndex;
+    if (manualIndex == 1 && upperMidiChParam_)      { const int c = static_cast<int>(upperMidiChParam_->load() + 0.5f); ch = (c > 0) ? c : 1; }
+    else if (manualIndex == 2 && lowerMidiChParam_) { const int c = static_cast<int>(lowerMidiChParam_->load() + 0.5f); ch = (c > 0) ? c : 2; }
+    else if (manualIndex == 3 && pedalMidiChParam_) { const int c = static_cast<int>(pedalMidiChParam_->load() + 0.5f); ch = (c > 0) ? c : 3; }
+
+    auto msg = juce::MidiMessage::noteOn(ch, midiNote, velocity);
     msg.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
     uiMidiCollector_.addMessageToQueue(msg);
 }
 
-void GreenOnionsAudioProcessor::injectNoteOff(int channel, int midiNote)
+void GreenOnionsAudioProcessor::injectNoteOff(int manualIndex, int midiNote)
 {
-    auto msg = juce::MidiMessage::noteOff(channel, midiNote);
+    int ch = manualIndex;
+    if (manualIndex == 1 && upperMidiChParam_)      { const int c = static_cast<int>(upperMidiChParam_->load() + 0.5f); ch = (c > 0) ? c : 1; }
+    else if (manualIndex == 2 && lowerMidiChParam_) { const int c = static_cast<int>(lowerMidiChParam_->load() + 0.5f); ch = (c > 0) ? c : 2; }
+    else if (manualIndex == 3 && pedalMidiChParam_) { const int c = static_cast<int>(pedalMidiChParam_->load() + 0.5f); ch = (c > 0) ? c : 3; }
+
+    auto msg = juce::MidiMessage::noteOff(ch, midiNote);
     msg.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
     uiMidiCollector_.addMessageToQueue(msg);
 }
@@ -166,28 +180,44 @@ void GreenOnionsAudioProcessor::setParamNormalizedFromAudioThread(const char* pa
         p->setValueNotifyingHost(p->convertTo0to1(plainValue));
 }
 
-void GreenOnionsAudioProcessor::handleMidiMessage(const juce::MidiMessage& msg, bool splitMode)
+void GreenOnionsAudioProcessor::handleMidiMessage(const juce::MidiMessage& msg, bool splitMode,
+                                                  int upperCh, int lowerCh, int pedalCh)
 {
     const int ch = msg.getChannel(); // 1..16
+    auto matches = [](int incoming, int configured) noexcept -> bool
+    {
+        return configured == 0 || incoming == configured;
+    };
+
+    const bool isUpper = matches(ch, upperCh);
+    const bool isLower = matches(ch, lowerCh);
+    const bool isPedal = matches(ch, pedalCh);
 
     if (msg.isNoteOn())
     {
-        const int note = msg.getNoteNumber();
+        const int note  = msg.getNoteNumber();
         const float vel = msg.getFloatVelocity();
 
         // Authentic B-3 Reverse-Color Preset Octave via MIDI C1..B1 (MIDI 24..35)
-        if ((ch == 1 || ch == 2) && note >= 24 && note <= 35)
+        if ((isUpper || isLower) && note >= 24 && note <= 35)
         {
             const int presetKey = note - 24;
-            const bool isUpper  = (ch == 1);
-            setParamNormalizedFromAudioThread(isUpper ? Params::kUpperPresetKey : Params::kLowerPresetKey,
-                                              static_cast<float>(presetKey));
-            if (presetKey >= 1 && presetKey <= 9)
-                recallManualPresetSlot(isUpper, presetKey);
+            if (isUpper)
+            {
+                setParamNormalizedFromAudioThread(Params::kUpperPresetKey, static_cast<float>(presetKey));
+                if (presetKey >= 1 && presetKey <= 9)
+                    recallManualPresetSlot(true, presetKey);
+            }
+            if (isLower)
+            {
+                setParamNormalizedFromAudioThread(Params::kLowerPresetKey, static_cast<float>(presetKey));
+                if (presetKey >= 1 && presetKey <= 9)
+                    recallManualPresetSlot(false, presetKey);
+            }
             return;
         }
 
-        if (splitMode && ch == 1)
+        if (splitMode && isUpper)
         {
             if (note < 48)
                 tonewheelEngine_.noteOnPedal(note, vel);
@@ -198,9 +228,9 @@ void GreenOnionsAudioProcessor::handleMidiMessage(const juce::MidiMessage& msg, 
         }
         else
         {
-            if (ch == 1)      tonewheelEngine_.noteOnUpper(note, vel);
-            else if (ch == 2) tonewheelEngine_.noteOnLower(note, vel);
-            else if (ch == 3) tonewheelEngine_.noteOnPedal(note, vel);
+            if (isUpper) tonewheelEngine_.noteOnUpper(note, vel);
+            if (isLower) tonewheelEngine_.noteOnLower(note, vel);
+            if (isPedal) tonewheelEngine_.noteOnPedal(note, vel);
         }
     }
     else if (msg.isNoteOff())
@@ -208,10 +238,10 @@ void GreenOnionsAudioProcessor::handleMidiMessage(const juce::MidiMessage& msg, 
         const int note = msg.getNoteNumber();
 
         // Ignore Note-Off on C1..B1 (MIDI 24..35) so the mechanical preset key stays latched down
-        if ((ch == 1 || ch == 2) && note >= 24 && note <= 35)
+        if ((isUpper || isLower) && note >= 24 && note <= 35)
             return;
 
-        if (splitMode && ch == 1)
+        if (splitMode && isUpper)
         {
             if (note < 48)
                 tonewheelEngine_.noteOffPedal(note);
@@ -222,9 +252,9 @@ void GreenOnionsAudioProcessor::handleMidiMessage(const juce::MidiMessage& msg, 
         }
         else
         {
-            if (ch == 1)      tonewheelEngine_.noteOffUpper(note);
-            else if (ch == 2) tonewheelEngine_.noteOffLower(note);
-            else if (ch == 3) tonewheelEngine_.noteOffPedal(note);
+            if (isUpper) tonewheelEngine_.noteOffUpper(note);
+            if (isLower) tonewheelEngine_.noteOffLower(note);
+            if (isPedal) tonewheelEngine_.noteOffPedal(note);
         }
     }
     else if (msg.isAllNotesOff() || msg.isAllSoundOff())
@@ -350,6 +380,9 @@ void GreenOnionsAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
 
     const float masterGain = masterGainParam_->load();
     const bool  splitMode  = midiSplitParam_->load() >= 0.5f;
+    const int   upperCh    = static_cast<int>(upperMidiChParam_->load() + 0.5f);
+    const int   lowerCh    = static_cast<int>(lowerMidiChParam_->load() + 0.5f);
+    const int   pedalCh    = static_cast<int>(pedalMidiChParam_->load() + 0.5f);
 
     // Independent Left & Right studio mic radial distances & capsule models
     auto calcMicDistNorm = [](float mx, float my) noexcept -> float
@@ -416,7 +449,7 @@ void GreenOnionsAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
         // Sample-accurate MIDI dispatch
         while (midiIt != midiEnd && (*midiIt).samplePosition <= s)
         {
-            handleMidiMessage((*midiIt).getMessage(), splitMode);
+            handleMidiMessage((*midiIt).getMessage(), splitMode, upperCh, lowerCh, pedalCh);
             ++midiIt;
         }
 
@@ -486,7 +519,7 @@ void GreenOnionsAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     // Drain any trailing MIDI events beyond numSamples
     while (midiIt != midiEnd)
     {
-        handleMidiMessage((*midiIt).getMessage(), splitMode);
+        handleMidiMessage((*midiIt).getMessage(), splitMode, upperCh, lowerCh, pedalCh);
         ++midiIt;
     }
 
@@ -511,7 +544,9 @@ void GreenOnionsAudioProcessor::setCurrentProgram(int index)
 {
     const int n = getNumPrograms();
     if (index < 0 || index >= n) return;
-    currentProgram_ = index;
+    currentProgram_      = index;
+    currentPresetName_   = getProgramName(index);
+    currentPresetIsUser_ = false;
     Presets::applyPreset(apvts_, index);
 }
 
@@ -521,6 +556,102 @@ const juce::String GreenOnionsAudioProcessor::getProgramName(int index)
     if (index >= 0 && index < static_cast<int>(presets.size()))
         return presets[static_cast<size_t>(index)].name;
     return {};
+}
+
+juce::File GreenOnionsAudioProcessor::getUserPresetsDirectory() const
+{
+    auto dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                   .getChildFile("SignalForgeAudioLabs")
+                   .getChildFile("GreenOnions")
+                   .getChildFile("Presets");
+    if (!dir.exists())
+        dir.createDirectory();
+    return dir;
+}
+
+juce::StringArray GreenOnionsAudioProcessor::getUserPresetNames() const
+{
+    juce::StringArray names;
+    const auto dir = getUserPresetsDirectory();
+    if (!dir.isDirectory())
+        return names;
+
+    const auto files = dir.findChildFiles(juce::File::findFiles, false, "*.gopreset");
+    for (const auto& f : files)
+        names.add(f.getFileNameWithoutExtension());
+
+    names.sort(true); // case-insensitive alphabetical sort
+    return names;
+}
+
+bool GreenOnionsAudioProcessor::saveUserPreset(const juce::String& name)
+{
+    const auto cleanName = juce::File::createLegalFileName(name.trim());
+    if (cleanName.isEmpty())
+        return false;
+
+    const auto dir = getUserPresetsDirectory();
+    if (!dir.exists() && !dir.createDirectory())
+        return false;
+
+    auto state = apvts_.copyState();
+    std::unique_ptr<juce::XmlElement> xml(state.createXml());
+    if (xml == nullptr)
+        return false;
+
+    xml->setAttribute("presetName", cleanName);
+    appendPresetSlotsToXml(*xml);
+
+    const auto file = dir.getChildFile(cleanName + ".gopreset");
+    if (!file.replaceWithText(xml->toString()))
+        return false;
+
+    currentPresetName_   = cleanName;
+    currentPresetIsUser_ = true;
+    return true;
+}
+
+bool GreenOnionsAudioProcessor::loadUserPreset(const juce::String& name)
+{
+    const auto cleanName = juce::File::createLegalFileName(name.trim());
+    if (cleanName.isEmpty())
+        return false;
+
+    const auto file = getUserPresetsDirectory().getChildFile(cleanName + ".gopreset");
+    if (!file.existsAsFile())
+        return false;
+
+    std::unique_ptr<juce::XmlElement> xml(juce::XmlDocument::parse(file));
+    if (xml == nullptr || !xml->hasTagName(apvts_.state.getType()))
+        return false;
+
+    apvts_.replaceState(juce::ValueTree::fromXml(*xml));
+    restorePresetSlotsFromXml(*xml);
+
+    currentPresetName_   = cleanName;
+    currentPresetIsUser_ = true;
+    return true;
+}
+
+bool GreenOnionsAudioProcessor::deleteUserPreset(const juce::String& name)
+{
+    const auto cleanName = juce::File::createLegalFileName(name.trim());
+    if (cleanName.isEmpty())
+        return false;
+
+    const auto file = getUserPresetsDirectory().getChildFile(cleanName + ".gopreset");
+    if (!file.existsAsFile())
+        return false;
+
+    if (!file.deleteFile())
+        return false;
+
+    if (currentPresetIsUser_ && currentPresetName_ == cleanName)
+    {
+        currentPresetIsUser_ = false;
+        currentPresetName_   = getProgramName(currentProgram_);
+    }
+    return true;
 }
 
 void GreenOnionsAudioProcessor::appendPresetSlotsToXml(juce::XmlElement& parentXml) const
@@ -586,6 +717,8 @@ void GreenOnionsAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
     if (xml != nullptr)
     {
+        xml->setAttribute("currentPresetName",   currentPresetName_);
+        xml->setAttribute("currentPresetIsUser", currentPresetIsUser_);
         appendPresetSlotsToXml(*xml);
         copyXmlToBinary(*xml, destData);
     }
@@ -598,6 +731,11 @@ void GreenOnionsAudioProcessor::setStateInformation(const void* data, int sizeIn
     {
         apvts_.replaceState(juce::ValueTree::fromXml(*xmlState));
         restorePresetSlotsFromXml(*xmlState);
+        if (xmlState->hasAttribute("currentPresetName"))
+        {
+            currentPresetName_   = xmlState->getStringAttribute("currentPresetName");
+            currentPresetIsUser_ = xmlState->getBoolAttribute("currentPresetIsUser", false);
+        }
     }
 }
 

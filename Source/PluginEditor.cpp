@@ -66,17 +66,40 @@ GreenOnionsAudioProcessorEditor::GreenOnionsAudioProcessorEditor(GreenOnionsAudi
     presetLabel_.setJustificationType(juce::Justification::centredLeft);
     canvas_.addAndMakeVisible(presetLabel_);
 
-    const auto& presets = Presets::getFactoryPresets();
-    for (int i = 0; i < static_cast<int>(presets.size()); ++i)
-        presetBox_.addItem(presets[static_cast<size_t>(i)].name, i + 1);
-    presetBox_.setSelectedId(processor_.getCurrentProgram() + 1, juce::dontSendNotification);
     presetBox_.onChange = [this]()
     {
-        const int idx = presetBox_.getSelectedId() - 1;
-        if (idx >= 0)
-            processor_.setCurrentProgram(idx);
+        const int id = presetBox_.getSelectedId();
+        if (id >= kUserPresetIdBase)
+        {
+            const int userIdx = id - kUserPresetIdBase;
+            if (userIdx >= 0 && userIdx < userPresetNames_.size())
+                processor_.loadUserPreset(userPresetNames_[userIdx]);
+        }
+        else if (id >= 1)
+        {
+            processor_.setCurrentProgram(id - 1);
+        }
+        deletePresetBtn_.setEnabled(processor_.isCurrentPresetUser());
     };
     canvas_.addAndMakeVisible(presetBox_);
+
+    auto styleActionBtn = [](juce::TextButton& b, bool isAccent)
+    {
+        b.setColour(juce::TextButton::buttonColourId,  isAccent ? juce::Colour(0xff3a2a16) : juce::Colour(0xff231b1a));
+        b.setColour(juce::TextButton::textColourOffId, isAccent ? juce::Colour(0xffffcf87) : juce::Colour(0xffe0a899));
+    };
+
+    styleActionBtn(savePresetBtn_, true);
+    savePresetBtn_.setTooltip("Save current registration, drawbars, amp/mic & MIDI settings as a User Preset");
+    savePresetBtn_.onClick = [this]() { promptSaveUserPreset(); };
+    canvas_.addAndMakeVisible(savePresetBtn_);
+
+    styleActionBtn(deletePresetBtn_, false);
+    deletePresetBtn_.setTooltip("Delete selected User Preset");
+    deletePresetBtn_.onClick = [this]() { promptDeleteUserPreset(); };
+    canvas_.addAndMakeVisible(deletePresetBtn_);
+
+    refreshPresetList();
 
     auto styleHeaderBtn = [](juce::TextButton& b)
     {
@@ -226,6 +249,36 @@ GreenOnionsAudioProcessorEditor::GreenOnionsAudioProcessorEditor(GreenOnionsAudi
     canvas_.addAndMakeVisible(*lowerHalfMoonSwitch_);
     canvas_.addAndMakeVisible(*swellPedal_);
 
+    // Selectable MIDI Channel Routing (Omni, Ch 1..16) for Upper, Lower & Pedals
+    {
+        juce::StringArray chItems { "Omni" };
+        for (int ch = 1; ch <= 16; ++ch)
+            chItems.add("Ch " + juce::String(ch));
+
+        auto initMidiCh = [&](juce::ComboBox& box, juce::Label& lbl, const juce::String& title,
+                              const char* paramId, const juce::String& tip,
+                              std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>& att)
+        {
+            lbl.setText(title, juce::dontSendNotification);
+            lbl.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+            lbl.setColour(juce::Label::textColourId, UI::Palette::creamDim);
+            lbl.setJustificationType(juce::Justification::centred);
+            canvas_.addAndMakeVisible(lbl);
+
+            box.addItemList(chItems, 1);
+            box.setTooltip(tip);
+            canvas_.addAndMakeVisible(box);
+            att = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(apvts, paramId, box);
+        };
+
+        initMidiCh(upperMidiChBox_, upperMidiChLabel_, "UPPER", Params::kUpperMidiCh,
+                   "Upper Manual MIDI Channel (Omni receives all channels)", upperMidiChAttachment_);
+        initMidiCh(lowerMidiChBox_, lowerMidiChLabel_, "LOWER", Params::kLowerMidiCh,
+                   "Lower Manual MIDI Channel (Omni receives all channels)", lowerMidiChAttachment_);
+        initMidiCh(pedalMidiChBox_, pedalMidiChLabel_, "PEDAL", Params::kPedalMidiCh,
+                   "Pedalboard MIDI Channel (Omni receives all channels)", pedalMidiChAttachment_);
+    }
+
     // Interactive Maple Stage overlay (hidden by default; toggled via STAGE MICS header button)
     canvas_.addChildComponent(stageMicLayer_);
 
@@ -238,8 +291,127 @@ GreenOnionsAudioProcessorEditor::GreenOnionsAudioProcessorEditor(GreenOnionsAudi
 GreenOnionsAudioProcessorEditor::~GreenOnionsAudioProcessorEditor()
 {
     stopTimer();
+    if (presetDialog_ != nullptr)
+    {
+        presetDialog_->exitModalState(0);
+        presetDialog_->setLookAndFeel(nullptr);
+        presetDialog_.reset();
+    }
     canvas_.setLookAndFeel(nullptr);
     setLookAndFeel(nullptr);
+}
+
+void GreenOnionsAudioProcessorEditor::refreshPresetList()
+{
+    presetBox_.clear(juce::dontSendNotification);
+
+    presetBox_.addSectionHeading("FACTORY REGISTRATIONS");
+    const auto& presets = Presets::getFactoryPresets();
+    for (int i = 0; i < static_cast<int>(presets.size()); ++i)
+        presetBox_.addItem(presets[static_cast<size_t>(i)].name, i + 1);
+
+    userPresetNames_ = processor_.getUserPresetNames();
+    if (!userPresetNames_.isEmpty())
+    {
+        presetBox_.addSeparator();
+        presetBox_.addSectionHeading("USER PRESETS");
+        for (int i = 0; i < userPresetNames_.size(); ++i)
+            presetBox_.addItem(userPresetNames_[i], kUserPresetIdBase + i);
+    }
+
+    int selectedId = processor_.getCurrentProgram() + 1;
+    if (processor_.isCurrentPresetUser())
+    {
+        const int idx = userPresetNames_.indexOf(processor_.getCurrentPresetName());
+        if (idx >= 0)
+            selectedId = kUserPresetIdBase + idx;
+    }
+
+    presetBox_.setSelectedId(selectedId, juce::dontSendNotification);
+    deletePresetBtn_.setEnabled(processor_.isCurrentPresetUser());
+}
+
+void GreenOnionsAudioProcessorEditor::promptSaveUserPreset()
+{
+    if (presetDialog_ != nullptr)
+    {
+        presetDialog_->exitModalState(0);
+        presetDialog_->setLookAndFeel(nullptr);
+        presetDialog_.reset();
+    }
+
+    const juce::String initialName = processor_.isCurrentPresetUser()
+        ? processor_.getCurrentPresetName()
+        : "My Registration";
+
+    presetDialog_ = std::make_unique<juce::AlertWindow>(
+        "Save User Preset",
+        "Enter a name for this registration (saved to your Green Onions User Presets folder):",
+        juce::MessageBoxIconType::NoIcon,
+        this);
+    presetDialog_->setLookAndFeel(&lookAndFeel_);
+    presetDialog_->addTextEditor("presetName", initialName, "Preset Name:");
+    presetDialog_->addButton("Save",   1, juce::KeyPress(juce::KeyPress::returnKey));
+    presetDialog_->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+    juce::Component::SafePointer<GreenOnionsAudioProcessorEditor> safeThis(this);
+    presetDialog_->enterModalState(
+        true,
+        juce::ModalCallbackFunction::create([safeThis](int result)
+        {
+            if (safeThis == nullptr || safeThis->presetDialog_ == nullptr)
+                return;
+
+            if (result == 1)
+            {
+                const auto name = safeThis->presetDialog_->getTextEditorContents("presetName").trim();
+                if (name.isNotEmpty() && safeThis->processor_.saveUserPreset(name))
+                    safeThis->refreshPresetList();
+            }
+
+            safeThis->presetDialog_->setLookAndFeel(nullptr);
+            safeThis->presetDialog_.reset();
+        }),
+        false);
+}
+
+void GreenOnionsAudioProcessorEditor::promptDeleteUserPreset()
+{
+    if (!processor_.isCurrentPresetUser())
+        return;
+
+    if (presetDialog_ != nullptr)
+    {
+        presetDialog_->exitModalState(0);
+        presetDialog_->setLookAndFeel(nullptr);
+        presetDialog_.reset();
+    }
+
+    const juce::String targetName = processor_.getCurrentPresetName();
+    presetDialog_ = std::make_unique<juce::AlertWindow>(
+        "Delete User Preset",
+        "Delete user preset \"" + targetName + "\"?",
+        juce::MessageBoxIconType::WarningIcon,
+        this);
+    presetDialog_->setLookAndFeel(&lookAndFeel_);
+    presetDialog_->addButton("Delete", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    presetDialog_->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+    juce::Component::SafePointer<GreenOnionsAudioProcessorEditor> safeThis(this);
+    presetDialog_->enterModalState(
+        true,
+        juce::ModalCallbackFunction::create([safeThis, targetName](int result)
+        {
+            if (safeThis == nullptr || safeThis->presetDialog_ == nullptr)
+                return;
+
+            if (result == 1 && safeThis->processor_.deleteUserPreset(targetName))
+                safeThis->refreshPresetList();
+
+            safeThis->presetDialog_->setLookAndFeel(nullptr);
+            safeThis->presetDialog_.reset();
+        }),
+        false);
 }
 
 void GreenOnionsAudioProcessorEditor::applyWindowScaleAndMode()
@@ -338,9 +510,9 @@ void GreenOnionsAudioProcessorEditor::paintCanvas(juce::Graphics& g, juce::Recta
     };
 
     const int ledW = ledArea_.getWidth() / 3;
-    drawLed(ledArea_.withWidth(ledW),                                    "CH1", upperHeld_ > 0);
-    drawLed(ledArea_.withX(ledArea_.getX() + ledW).withWidth(ledW),      "CH2", lowerHeld_ > 0);
-    drawLed(ledArea_.withX(ledArea_.getX() + 2 * ledW).withWidth(ledW),  "CH3", pedalHeld_ > 0);
+    drawLed(ledArea_.withWidth(ledW),                                    "UP",  upperHeld_ > 0);
+    drawLed(ledArea_.withX(ledArea_.getX() + ledW).withWidth(ledW),      "LO",  lowerHeld_ > 0);
+    drawLed(ledArea_.withX(ledArea_.getX() + 2 * ledW).withWidth(ledW),  "PED", pedalHeld_ > 0);
 
     // Draw brushed dark anodized module panels
     auto drawSection = [&](juce::Rectangle<int> r, const juce::String& title)
@@ -356,6 +528,8 @@ void GreenOnionsAudioProcessorEditor::paintCanvas(juce::Graphics& g, juce::Recta
     drawSection(preampFrame_,  "TONEWHEEL & AO-28 PREAMP");
     drawSection(reverbFrame_,  "REVERB & 2x12 AMP");
     drawSection(leslieFrame_,  "LESLIE 122 / 147 ROTARY SPEAKER (CC1 / CC64)");
+    if (!midiChFrame_.isEmpty())
+        drawSection(midiChFrame_, "MIDI CHANNELS");
 }
 
 void GreenOnionsAudioProcessorEditor::layoutCanvas(juce::Rectangle<int> bounds)
@@ -379,15 +553,20 @@ void GreenOnionsAudioProcessorEditor::layoutCanvas(juce::Rectangle<int> bounds)
     ledArea_ = header.removeFromRight(92);
     header.removeFromRight(6);
 
-    const int selectorW = std::max(120, (header.getWidth() - 6) / 2);
-    auto consoleCol = header.removeFromLeft(selectorW);
+    const int consoleW = std::min(205, std::max(140, (header.getWidth() - 6) * 42 / 100));
+    auto consoleCol = header.removeFromLeft(consoleW);
     organModelLabel_.setBounds(consoleCol.removeFromTop(12));
     organModelBox_.setBounds(consoleCol.reduced(0, 2));
 
     header.removeFromLeft(6);
     auto presetCol = header;
     presetLabel_.setBounds(presetCol.removeFromTop(12));
-    presetBox_.setBounds(presetCol.reduced(0, 2));
+    auto presetRow = presetCol.reduced(0, 2);
+    deletePresetBtn_.setBounds(presetRow.removeFromRight(32));
+    presetRow.removeFromRight(3);
+    savePresetBtn_.setBounds(presetRow.removeFromRight(42));
+    presetRow.removeFromRight(4);
+    presetBox_.setBounds(presetRow);
 
     const int stageTopY = area.getY();
     area.reduce(8, 6);
@@ -486,6 +665,12 @@ void GreenOnionsAudioProcessorEditor::layoutCanvas(juce::Rectangle<int> bounds)
     pedalKeyboard_->setVisible(showKeyboards);
     lowerHalfMoonSwitch_->setVisible(showKeyboards);
     swellPedal_->setVisible(showKeyboards);
+    upperMidiChBox_.setVisible(showKeyboards);
+    lowerMidiChBox_.setVisible(showKeyboards);
+    pedalMidiChBox_.setVisible(showKeyboards);
+    upperMidiChLabel_.setVisible(showKeyboards);
+    lowerMidiChLabel_.setVisible(showKeyboards);
+    pedalMidiChLabel_.setVisible(showKeyboards);
 
     if (showKeyboards)
     {
@@ -508,10 +693,36 @@ void GreenOnionsAudioProcessorEditor::layoutCanvas(juce::Rectangle<int> bounds)
 
         area.removeFromTop(4);
         auto pedalRow = area;
-        const int sideW = 190;
-        lowerHalfMoonSwitch_->setBounds(pedalRow.removeFromLeft(sideW).reduced(10, 4));
-        swellPedal_->setBounds(pedalRow.removeFromRight(sideW).reduced(10, 2));
-        pedalKeyboard_->setBounds(pedalRow.reduced(16, 0));
+        const int sideW = 175;
+        lowerHalfMoonSwitch_->setBounds(pedalRow.removeFromLeft(sideW).reduced(8, 4));
+        swellPedal_->setBounds(pedalRow.removeFromRight(sideW).reduced(8, 2));
+
+        pedalRow.removeFromRight(6);
+        midiChFrame_ = pedalRow.removeFromRight(234).reduced(0, 2);
+        {
+            auto inner = midiChFrame_.withTrimmedTop(19).reduced(6, 4);
+            const int gap = 5;
+            const int colW = (inner.getWidth() - 2 * gap) / 3;
+
+            auto layoutCol = [&](juce::Rectangle<int> col, juce::Label& lbl, juce::ComboBox& box)
+            {
+                lbl.setBounds(col.removeFromTop(14));
+                col.removeFromTop(2);
+                box.setBounds(col.withSizeKeepingCentre(col.getWidth(), std::min(24, col.getHeight())));
+            };
+
+            layoutCol(inner.removeFromLeft(colW), upperMidiChLabel_, upperMidiChBox_);
+            inner.removeFromLeft(gap);
+            layoutCol(inner.removeFromLeft(colW), lowerMidiChLabel_, lowerMidiChBox_);
+            inner.removeFromLeft(gap);
+            layoutCol(inner,                      pedalMidiChLabel_, pedalMidiChBox_);
+        }
+
+        pedalKeyboard_->setBounds(pedalRow.reduced(10, 0));
+    }
+    else
+    {
+        midiChFrame_ = {};
     }
 }
 

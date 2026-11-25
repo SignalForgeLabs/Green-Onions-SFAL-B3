@@ -36,6 +36,9 @@ public:
 private:
     void timerCallback() override;
     void applyWindowScaleAndMode();
+    void refreshPresetList();
+    void promptSaveUserPreset();
+    void promptDeleteUserPreset();
 
     struct LabeledKnob
     {
@@ -77,6 +80,11 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> organModelAttachment_;
     juce::ComboBox presetBox_;
     juce::Label    presetLabel_;
+    juce::TextButton savePresetBtn_   { "SAVE" };
+    juce::TextButton deletePresetBtn_ { "DEL" };
+    juce::StringArray userPresetNames_;
+    std::unique_ptr<juce::AlertWindow> presetDialog_;
+    static constexpr int kUserPresetIdBase = 1000;
     juce::TextButton stageViewToggleBtn_ { "STAGE MICS" };
     juce::TextButton liveRackToggleBtn_  { "LIVE RACK" };
     juce::ComboBox   zoomBox_;
@@ -124,6 +132,17 @@ private:
     std::unique_ptr<UI::HalfMoonSwitch>      lowerHalfMoonSwitch_;
     std::unique_ptr<UI::SwellPedalComponent> swellPedal_;
 
+    // Selectable MIDI Channel Routing (Omni, Ch 1..16) for Upper, Lower & Pedals
+    juce::ComboBox upperMidiChBox_;
+    juce::ComboBox lowerMidiChBox_;
+    juce::ComboBox pedalMidiChBox_;
+    juce::Label    upperMidiChLabel_;
+    juce::Label    lowerMidiChLabel_;
+    juce::Label    pedalMidiChLabel_;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> upperMidiChAttachment_;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> lowerMidiChAttachment_;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> pedalMidiChAttachment_;
+
     // Interactive Maple Stage & Draggable Stereo Mic Layer (toggled via STAGE MICS button)
     UI::StageMicLayerComponent stageMicLayer_;
 
@@ -133,7 +152,7 @@ private:
     int pedalHeld_ = 0;
 
     // Layout rects for section framing in paintCanvas()
-    juce::Rectangle<int> percVcFrame_, preampFrame_, reverbFrame_, leslieFrame_;
+    juce::Rectangle<int> percVcFrame_, preampFrame_, reverbFrame_, leslieFrame_, midiChFrame_;
     juce::Rectangle<int> ledArea_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GreenOnionsAudioProcessorEditor)

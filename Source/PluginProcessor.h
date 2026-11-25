@@ -47,6 +47,15 @@ public:
     const juce::String getProgramName(int index) override;
     void changeProgramName(int, const juce::String&) override {}
 
+    // Cross-platform User Preset management (.gopreset XML files)
+    juce::File        getUserPresetsDirectory() const;
+    juce::StringArray getUserPresetNames() const;
+    bool              saveUserPreset(const juce::String& name);
+    bool              loadUserPreset(const juce::String& name);
+    bool              deleteUserPreset(const juce::String& name);
+    juce::String      getCurrentPresetName() const { return currentPresetName_; }
+    bool              isCurrentPresetUser() const noexcept { return currentPresetIsUser_; }
+
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
@@ -82,13 +91,16 @@ public:
     }
 
 private:
-    void handleMidiMessage(const juce::MidiMessage& msg, bool splitMode);
+    void handleMidiMessage(const juce::MidiMessage& msg, bool splitMode,
+                           int upperCh, int lowerCh, int pedalCh);
     void setParamNormalizedFromAudioThread(const char* paramId, float plainValue);
     void appendPresetSlotsToXml(juce::XmlElement& parentXml) const;
     void restorePresetSlotsFromXml(const juce::XmlElement& parentXml);
 
     juce::AudioProcessorValueTreeState apvts_;
-    int currentProgram_ = 0;
+    int          currentProgram_      = 0;
+    juce::String currentPresetName_   { "Green Onions (Booker T.)" };
+    bool         currentPresetIsUser_ = false;
 
     // Cached raw parameter pointers for lock-free audio thread access
     std::array<std::atomic<float>*, 9> upperDbParams_ {};
@@ -126,6 +138,9 @@ private:
     std::atomic<float>* hornBalanceParam_ = nullptr;
     std::atomic<float>* masterGainParam_  = nullptr;
     std::atomic<float>* midiSplitParam_   = nullptr;
+    std::atomic<float>* upperMidiChParam_ = nullptr;
+    std::atomic<float>* lowerMidiChParam_ = nullptr;
+    std::atomic<float>* pedalMidiChParam_ = nullptr;
     std::atomic<float>* organModelParam_  = nullptr;
     std::atomic<float>* micLTypeParam_    = nullptr;
     std::atomic<float>* micRTypeParam_    = nullptr;

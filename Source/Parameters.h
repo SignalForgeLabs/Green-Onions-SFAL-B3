@@ -75,6 +75,9 @@ inline constexpr const char* kHornBalance  = "horn_balance";
 // Master & Routing
 inline constexpr const char* kMasterGain   = "master_gain";
 inline constexpr const char* kMidiSplit    = "midi_split";
+inline constexpr const char* kUpperMidiCh  = "midi_ch_upper";
+inline constexpr const char* kLowerMidiCh  = "midi_ch_lower";
+inline constexpr const char* kPedalMidiCh  = "midi_ch_pedal";
 inline constexpr const char* kOrganModel   = "organ_model";
 
 // Interactive Stage & Draggable Stereo Mic Placement
@@ -221,6 +224,18 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout
         juce::NormalisableRange<float>(0.0f, 1.5f, 0.01f), 0.90f));
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID { kMidiSplit, 1 }, "Single-KB Split Mode", false));
+
+    juce::StringArray midiChannelChoices;
+    midiChannelChoices.add("Omni");
+    for (int ch = 1; ch <= 16; ++ch)
+        midiChannelChoices.add("Ch " + juce::String(ch));
+
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID { kUpperMidiCh, 1 }, "Upper Manual MIDI Ch", midiChannelChoices, 1)); // Default Ch 1
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID { kLowerMidiCh, 1 }, "Lower Manual MIDI Ch", midiChannelChoices, 2)); // Default Ch 2
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID { kPedalMidiCh, 1 }, "Pedalboard MIDI Ch",   midiChannelChoices, 3)); // Default Ch 3
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID { kOrganModel, 1 }, "Load Your Organ",
         juce::StringArray {
